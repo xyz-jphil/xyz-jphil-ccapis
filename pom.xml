@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>io.github.xyz-jphil</groupId>
+    <artifactId>xyz-jphil-ccapis</artifactId>
+    <version>1.0</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>xyz-jphil-ccapis-base</module>
+        <module>xyz-jphil-ccapis-tokencounter</module>
+        <module>xyz-jphil-ccapis-impl</module>
+        <module>xyz-jphil-ccapis-ping</module>
+        <module>xyz-jphil-ccapis-usage_tracker</module>
+        <module>xyz-jphil-ccapis-oauth</module>
+    </modules>
+</project>

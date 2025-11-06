@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Console appender with concise pattern - just simple class name and message -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- %logger{0} = simple class name only (e.g., "CCAPIProxy" instead of "xyz.jphil.ccapis.proxy.CCAPIProxy") -->
+            <pattern>[%logger{0}] %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Keep Javalin logs but show only simple class names -->
+    <logger name="io.javalin" level="INFO"/>
+
+    <!-- Keep Jetty logs but show only simple class names -->
+    <logger name="org.eclipse.jetty" level="INFO"/>
+
+    <!-- Application logs at INFO level -->
+    <logger name="xyz.jphil.ccapis" level="INFO"/>
+
+    <!-- Root logger at INFO level -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
