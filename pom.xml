@@ -16,5 +16,6 @@
         <module>xyz-jphil-ccapis-ping</module>
         <module>xyz-jphil-ccapis-usage_tracker</module>
         <module>xyz-jphil-ccapis-oauth</module>
+        <module>xyz-jphil-ccapis-conversation-downloader</module>
     </modules>
 </project>
