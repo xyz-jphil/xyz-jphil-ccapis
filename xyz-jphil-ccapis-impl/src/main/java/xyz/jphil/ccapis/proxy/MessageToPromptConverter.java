@@ -81,8 +81,8 @@ public class MessageToPromptConverter {
         var result = new StringBuilder();
         var allContent = collectAllContent(request);
 
-        // Add system prompt if present
-        var systemPrompt = request.getSystemPrompt();
+        // Add system prompt if present (with tools appended)
+        var systemPrompt = buildSystemPromptWithTools(request);
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
             var systemTag = findNonCollidingTag(TAG_SYSTEM, allContent);
             result.append("<").append(systemTag).append(">")
@@ -115,8 +115,8 @@ public class MessageToPromptConverter {
         int nextAssistantIndex = countMessagesWithRole(messages, "assistant");
         var finalAssistantTag = findNonCollidingTag(TAG_ASSISTANT, allContent, nextAssistantIndex);
 
-        // Add system prompt if present
-        var systemPrompt = request.getSystemPrompt();
+        // Add system prompt if present (with tools appended)
+        var systemPrompt = buildSystemPromptWithTools(request);
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
             var systemTag = findNonCollidingTag(TAG_SYSTEM, allContent);
             result.append("<").append(systemTag).append(">")
@@ -245,6 +245,25 @@ public class MessageToPromptConverter {
         }
 
         return false;
+    }
+
+    /**
+     * Build system prompt with tools appended
+     * Combines the original system prompt with tool definitions
+     */
+    private static String buildSystemPromptWithTools(AnthropicRequest request) {
+        var systemPrompt = request.getSystemPrompt();
+        var toolsText = ToolsConverter.convertToolsToText(request.getTools());
+
+        if (systemPrompt == null || systemPrompt.isEmpty()) {
+            return toolsText != null ? toolsText : "";
+        }
+
+        if (toolsText == null || toolsText.isEmpty()) {
+            return systemPrompt;
+        }
+
+        return systemPrompt + "\n\n" + toolsText;
     }
 
     /**

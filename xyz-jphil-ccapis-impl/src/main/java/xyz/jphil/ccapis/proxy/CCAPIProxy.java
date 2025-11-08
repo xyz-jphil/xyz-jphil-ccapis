@@ -89,9 +89,6 @@ public class CCAPIProxy {
             ? this.proxySettings.ccapi().individualMessagesVisible()
             : true;
 
-        // Create CCAPI client (now stateless)
-        this.ccapiClient = new CCAPIClient();
-
         // Create JSON mapper with proper configuration
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
@@ -102,6 +99,11 @@ public class CCAPIProxy {
 
         // Create debug logger with loaded settings
         this.debugLogger = new DebugLogger(this.proxySettings, objectMapper);
+
+        // Create CCAPI client with file logger if individual file logging is enabled
+        this.ccapiClient = debugLogger.isIndividualFileLoggingEnabled()
+            ? new CCAPIClient(debugLogger.getFileLogger())
+            : new CCAPIClient();
 
         // Create Javalin app
         this.app = Javalin.create(config -> {
@@ -270,20 +272,60 @@ public class CCAPIProxy {
             // Log full response
             debugLogger.logCcapiResponse(fullResponse.toString());
 
-            // Send content_block_stop event
+            // Parse tool calls from the full response
+            var parseResult = xyz.jphil.ccapis.proxy.toolcalls.ToolCallParser.parse(fullResponse.toString());
+
+            // Send content_block_stop event for text
             writeSSE(outputStream, StreamingChunk.contentBlockStop(0));
+
+            // If there are tool calls, send them as additional content blocks
+            int toolBlockIndex = 1;
+            if (parseResult.hasToolCalls()) {
+                for (var toolUse : parseResult.getToolUses()) {
+                    // Send content_block_start for tool_use
+                    writeSSE(outputStream, StreamingChunk.toolUseBlockStart(toolBlockIndex, toolUse));
+                    // Send content_block_stop for tool_use
+                    writeSSE(outputStream, StreamingChunk.contentBlockStop(toolBlockIndex));
+                    toolBlockIndex++;
+                }
+            }
+
+            // Determine stop reason
+            String stopReason = parseResult.hasToolCalls() ? "tool_use" : "end_turn";
 
             // Send message_delta event with stop reason
             var usage = AnthropicUsage.of(
                 estimateTokens(prompt),
                 outputTokens
             );
-            writeSSE(outputStream, StreamingChunk.messageDelta("end_turn", usage));
+            writeSSE(outputStream, StreamingChunk.messageDelta(stopReason, usage));
 
             // Send message_stop event
             writeSSE(outputStream, StreamingChunk.messageStop());
 
             outputStream.flush();
+
+            // Log the converted response (build for logging)
+            var response = parseResult.hasToolCalls()
+                ? AnthropicResponse.createWithToolUses(
+                    messageId, model,
+                    parseResult.getTextBeforeToolCalls(),
+                    parseResult.getToolUses(),
+                    usage
+                )
+                : AnthropicResponse.create(messageId, model, fullResponse.toString(), usage);
+            debugLogger.logConvertedAnthropicResponse(response);
+
+            // Also log to individual file if file logging is enabled
+            if (debugLogger.isIndividualFileLoggingEnabled()) {
+                try {
+                    var json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(response);
+                    var seqStr = String.format("%04d", debugLogger.getFileLogger().getCurrentSequence() - 1);
+                    debugLogger.getFileLogger().logConvertedAnthropicResponse(seqStr, json);
+                } catch (Exception ex) {
+                    System.err.println("[PROXY] Failed to log converted response to file: " + ex.getMessage());
+                }
+            }
 
         } catch (Exception e) {
             // Send error event
@@ -325,6 +367,9 @@ public class CCAPIProxy {
         var parser = new xyz.jphil.ccapis.streaming.StreamingEventParser(objectMapper);
         var fullText = parser.parse(responseText);
 
+        // Parse tool calls from the response
+        var parseResult = xyz.jphil.ccapis.proxy.toolcalls.ToolCallParser.parse(fullText);
+
         // Generate response
         var messageId = "msg_" + System.currentTimeMillis();
         var model = request.getModel() != null ? request.getModel() : "claude-3-opus-20240229";
@@ -334,7 +379,29 @@ public class CCAPIProxy {
             estimateTokens(fullText)
         );
 
-        var response = AnthropicResponse.create(messageId, model, fullText, usage);
+        // Create response with tool calls if present
+        var response = parseResult.hasToolCalls()
+            ? AnthropicResponse.createWithToolUses(
+                messageId, model,
+                parseResult.getTextBeforeToolCalls(),
+                parseResult.getToolUses(),
+                usage
+            )
+            : AnthropicResponse.create(messageId, model, fullText, usage);
+
+        // Log the converted response
+        debugLogger.logConvertedAnthropicResponse(response);
+
+        // Also log to individual file if file logging is enabled
+        if (debugLogger.isIndividualFileLoggingEnabled()) {
+            try {
+                var json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(response);
+                var seqStr = String.format("%04d", debugLogger.getFileLogger().getCurrentSequence() - 1);
+                debugLogger.getFileLogger().logConvertedAnthropicResponse(seqStr, json);
+            } catch (Exception e) {
+                System.err.println("[PROXY] Failed to log converted response to file: " + e.getMessage());
+            }
+        }
 
         ctx.json(response);
     }

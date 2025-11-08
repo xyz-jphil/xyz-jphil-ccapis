@@ -74,4 +74,31 @@ public class AnthropicResponse {
                 .usage(usage)
                 .build();
     }
+
+    /**
+     * Create a response with text and tool uses
+     */
+    public static AnthropicResponse createWithToolUses(String id, String model, String text, List<ToolUse> toolUses, AnthropicUsage usage) {
+        var contentBlocks = new java.util.ArrayList<ContentBlock>();
+
+        // Add text if present
+        if (text != null && !text.isEmpty()) {
+            contentBlocks.add(ContentBlock.text(text));
+        }
+
+        // Add tool uses
+        for (var toolUse : toolUses) {
+            contentBlocks.add(ContentBlock.toolUse(toolUse));
+        }
+
+        return AnthropicResponse.builder()
+                .id(id)
+                .type("message")
+                .role("assistant")
+                .model(model)
+                .content(contentBlocks)
+                .stopReason(toolUses.isEmpty() ? "end_turn" : "tool_use")
+                .usage(usage)
+                .build();
+    }
 }

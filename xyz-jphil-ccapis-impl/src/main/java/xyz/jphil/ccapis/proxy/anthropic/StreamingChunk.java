@@ -156,6 +156,17 @@ public class StreamingChunk {
     }
 
     /**
+     * Create a content_block_start event for tool_use
+     */
+    public static StreamingChunk toolUseBlockStart(int index, ToolUse toolUse) {
+        return StreamingChunk.builder()
+                .type("content_block_start")
+                .index(index)
+                .contentBlock(ContentBlock.toolUse(toolUse))
+                .build();
+    }
+
+    /**
      * Create a content_block_stop event
      */
     public static StreamingChunk contentBlockStop(int index) {

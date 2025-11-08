@@ -32,19 +32,34 @@ public class CCAPIClient {
      * Create client (stateless - credentials passed to each method)
      */
     public CCAPIClient() {
-        this.httpClient = createHttpClient();
+        this(null);
+    }
+
+    /**
+     * Create client with optional request/response file logger
+     *
+     * @param fileLogger optional logger for saving requests/responses as individual files (can be null)
+     */
+    public CCAPIClient(xyz.jphil.ccapis.proxy.RequestResponseFileLogger fileLogger) {
+        this.httpClient = createHttpClient(fileLogger);
         this.objectMapper = createObjectMapper();
         this.tokenCounter = new FreshFriedFishTokenizerService();
     }
 
-    private OkHttpClient createHttpClient() {
-        return new OkHttpClient.Builder()
+    private OkHttpClient createHttpClient(xyz.jphil.ccapis.proxy.RequestResponseFileLogger fileLogger) {
+        var builder = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .followRedirects(true)
-                .followSslRedirects(true)
-                .build();
+                .followSslRedirects(true);
+
+        // Add logging interceptor if file logger is provided
+        if (fileLogger != null) {
+            builder.addInterceptor(new xyz.jphil.ccapis.proxy.RequestResponseLoggingInterceptor(fileLogger));
+        }
+
+        return builder.build();
     }
 
     private ObjectMapper createObjectMapper() {

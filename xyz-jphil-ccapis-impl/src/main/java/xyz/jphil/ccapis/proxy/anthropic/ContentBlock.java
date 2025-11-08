@@ -6,9 +6,11 @@ import lombok.Builder;
 import lombok.Value;
 import lombok.extern.jackson.Jacksonized;
 
+import java.util.Map;
+
 /**
  * Anthropic API content block
- * Represents a piece of content in a message (text, image, etc.)
+ * Represents a piece of content in a message (text, image, tool_use)
  */
 @Value
 @Builder
@@ -17,7 +19,7 @@ import lombok.extern.jackson.Jacksonized;
 public class ContentBlock {
 
     /**
-     * Type of content block: "text" or "image"
+     * Type of content block: "text", "image", or "tool_use"
      */
     String type;
 
@@ -31,6 +33,21 @@ public class ContentBlock {
      */
     @JsonProperty("source")
     ImageSource source;
+
+    /**
+     * Tool use ID (for type="tool_use")
+     */
+    String id;
+
+    /**
+     * Tool name (for type="tool_use")
+     */
+    String name;
+
+    /**
+     * Tool input parameters (for type="tool_use")
+     */
+    Map<String, Object> input;
 
     /**
      * Image source information
@@ -55,6 +72,18 @@ public class ContentBlock {
         return ContentBlock.builder()
                 .type("text")
                 .text(text)
+                .build();
+    }
+
+    /**
+     * Create a tool_use content block from ToolUse
+     */
+    public static ContentBlock toolUse(ToolUse toolUse) {
+        return ContentBlock.builder()
+                .type("tool_use")
+                .id(toolUse.getId())
+                .name(toolUse.getName())
+                .input(toolUse.getInput())
                 .build();
     }
 }

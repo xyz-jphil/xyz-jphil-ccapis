@@ -37,6 +37,7 @@ public class DebugLogger {
     private final ObjectMapper objectMapper;
     private final Path conversationLogsDir;
     private Path currentConversationFile;
+    private final RequestResponseFileLogger fileLogger;
 
     private static final DateTimeFormatter TIMESTAMP_DISPLAY =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
@@ -101,6 +102,15 @@ public class DebugLogger {
             } catch (IOException e) {
                 System.err.println("[DEBUG] Failed to clear old run folders: " + e.getMessage());
             }
+        }
+
+        // Initialize individual file logger if enabled
+        if (isFileOutputEnabled() && debugSettings.outputToFile().saveAsIndividualFiles()) {
+            var createIndex = debugSettings.outputToFile().createIndexFile();
+            this.fileLogger = new RequestResponseFileLogger(conversationLogsDir, createIndex);
+            System.out.println("[DEBUG] Individual file logging enabled with index=" + createIndex);
+        } else {
+            this.fileLogger = null;
         }
     }
 
@@ -249,6 +259,35 @@ public class DebugLogger {
     }
 
     /**
+     * Log converted Anthropic response (final response sent to Claude Code)
+     */
+    public void logConvertedAnthropicResponse(Object response) {
+        if (!isOutputLoggingEnabled()) {
+            return;
+        }
+
+        var sb = new StringBuilder();
+        sb.append("\n").append("=".repeat(80)).append("\n");
+        sb.append("[").append(timestamp()).append("] CONVERTED ANTHROPIC RESPONSE\n");
+        sb.append("=".repeat(80)).append("\n");
+
+        try {
+            var prettyJson = objectMapper.writerWithDefaultPrettyPrinter()
+                                        .writeValueAsString(response);
+            sb.append("--- JSON RESPONSE ---\n");
+            sb.append(truncateForConsole(prettyJson)).append("\n");
+            sb.append("Response length: ").append(prettyJson.length()).append(" chars\n");
+        } catch (Exception e) {
+            sb.append("Failed to serialize response: ").append(e.getMessage()).append("\n");
+        }
+
+        sb.append("=".repeat(80)).append("\n");
+
+        logToConsole(sb.toString());
+        logToFile(sb.toString());
+    }
+
+    /**
      * Log streaming chunk
      */
     public void logStreamingChunk(String chunk) {
@@ -344,5 +383,20 @@ public class DebugLogger {
      */
     private String timestamp() {
         return TIMESTAMP_DISPLAY.format(Instant.now());
+    }
+
+    /**
+     * Get the file logger (for direct HTTP request/response logging)
+     * Returns null if individual file logging is not enabled
+     */
+    public RequestResponseFileLogger getFileLogger() {
+        return fileLogger;
+    }
+
+    /**
+     * Check if individual file logging is enabled
+     */
+    public boolean isIndividualFileLoggingEnabled() {
+        return fileLogger != null;
     }
 }

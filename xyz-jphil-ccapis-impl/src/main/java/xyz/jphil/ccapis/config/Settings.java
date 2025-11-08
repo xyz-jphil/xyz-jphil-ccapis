@@ -73,6 +73,12 @@ public class Settings {
 
                 @XmlAttribute(name = "clearPreviousAtStart")
                 private boolean clearPreviousAtStart;
+
+                @XmlAttribute(name = "saveAsIndividualFiles")
+                private boolean saveAsIndividualFiles;
+
+                @XmlAttribute(name = "createIndexFile")
+                private boolean createIndexFile;
             }
 
             public int stdOutLimit() {
