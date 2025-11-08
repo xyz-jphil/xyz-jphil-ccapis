@@ -19,6 +19,9 @@ import java.util.List;
 @XmlAccessorType(XmlAccessType.FIELD)
 public class CCAPIsCredentials {
 
+    @XmlElement(name = "CircuitBreakerConfig")
+    private CircuitBreakerConfig circuitBreakerConfig;
+
     @XmlElement(name = "CCAPICredential")
     private List<CCAPICredential> credentials = new ArrayList<>();
 
@@ -97,5 +100,12 @@ public class CCAPIsCredentials {
                 .filter(c -> id.equals(c.id()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Get circuit breaker configuration with fallback to defaults
+     */
+    public CircuitBreakerConfig getCircuitBreakerConfig() {
+        return circuitBreakerConfig != null ? circuitBreakerConfig : new CircuitBreakerConfig();
     }
 }
