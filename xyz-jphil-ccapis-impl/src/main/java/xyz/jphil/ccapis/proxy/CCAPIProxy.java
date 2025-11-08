@@ -4,6 +4,7 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import xyz.jphil.ccapis.CCAPIClient;
+import xyz.jphil.ccapis.CCAPIClientWithHealthCheck;
 import xyz.jphil.ccapis.config.CredentialsManager;
 import xyz.jphil.ccapis.model.CCAPICredential;
 import xyz.jphil.ccapis.proxy.anthropic.*;
@@ -40,6 +41,7 @@ public class CCAPIProxy {
 
     private final Javalin app;
     private final CCAPIClient ccapiClient;
+    private final CCAPIClientWithHealthCheck healthCheckClient;
     private final List<CCAPICredential> activeCredentials;
     private int currentCredentialIndex = 0;
     private final ObjectMapper objectMapper;
@@ -105,6 +107,16 @@ public class CCAPIProxy {
             ? new CCAPIClient(debugLogger.getFileLogger())
             : new CCAPIClient();
 
+        // Create health check client with circuit breaker from credentials config
+        var circuitBreakerConfig = credentials.getCircuitBreakerConfig();
+        this.healthCheckClient = debugLogger.isIndividualFileLoggingEnabled()
+            ? new CCAPIClientWithHealthCheck(circuitBreakerConfig, debugLogger.getFileLogger())
+            : new CCAPIClientWithHealthCheck(circuitBreakerConfig);
+
+        System.out.println("[PROXY] Circuit Breaker: " +
+            (circuitBreakerConfig.enabled() ? "ENABLED" : "DISABLED") +
+            " (threshold: " + circuitBreakerConfig.failureThreshold() + " failures)");
+
         // Create Javalin app
         this.app = Javalin.create(config -> {
             config.showJavalinBanner = false;
@@ -115,13 +127,34 @@ public class CCAPIProxy {
     }
 
     /**
-     * Get the current credential (with round-robin rotation)
+     * Get the current credential (with health-aware selection and round-robin fallback)
      */
     private synchronized CCAPICredential getCurrentCredential() {
+        // Try to get best available account based on health and usage
+        var bestAccount = healthCheckClient.selectBestAccount(activeCredentials);
+
+        if (bestAccount != null) {
+            debugLogger.logInfo("Selected account: " + bestAccount.id() +
+                " (usage: " + getUsagePercent(bestAccount) + "%)");
+            return bestAccount;
+        }
+
+        // Fallback to round-robin if circuit breaker disabled or no accounts available
+        debugLogger.logInfo("No healthy accounts available, using round-robin fallback");
         var credential = activeCredentials.get(currentCredentialIndex);
-        // Rotate to next credential for the next request
         currentCredentialIndex = (currentCredentialIndex + 1) % activeCredentials.size();
         return credential;
+    }
+
+    /**
+     * Get usage percentage for an account (for logging)
+     */
+    private int getUsagePercent(CCAPICredential credential) {
+        var health = healthCheckClient.getHealthMonitor().getHealth(credential.id());
+        if (health.latestUsage() != null && health.latestUsage().fiveHour() != null) {
+            return health.latestUsage().fiveHour().utilization();
+        }
+        return 0;
     }
 
     /**
@@ -130,6 +163,9 @@ public class CCAPIProxy {
     private void setupRoutes() {
         // Health check
         app.get("/health", this::handleHealth);
+
+        // Circuit breaker health status
+        app.get("/health/accounts", this::handleAccountsHealth);
 
         // Anthropic-compatible Messages API
         app.post("/v1/messages", this::handleMessages);
@@ -154,6 +190,15 @@ public class CCAPIProxy {
             "credential_count", activeCredentials.size(),
             "timestamp", Instant.now().toString()
         ));
+    }
+
+    /**
+     * Account health status endpoint - shows circuit breaker state
+     */
+    private void handleAccountsHealth(Context ctx) {
+        // Return health summary as plain text
+        ctx.contentType("text/plain");
+        ctx.result(healthCheckClient.getHealthSummary());
     }
 
     /**
