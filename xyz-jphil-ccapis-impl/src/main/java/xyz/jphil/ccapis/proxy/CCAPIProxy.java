@@ -531,9 +531,10 @@ public class CCAPIProxy {
      * Main entry point
      */
     public static void main(String[] args) {
-        
+
         int port = 8080;
         String settingsPath = null;
+        boolean noTray = false;
 
         // Parse command line arguments
         for (int i = 0; i < args.length; i++) {
@@ -543,6 +544,8 @@ public class CCAPIProxy {
             } else if (args[i].equals("--settings") && i + 1 < args.length) {
                 settingsPath = args[i + 1];
                 i++;
+            } else if (args[i].equals("--no-tray")) {
+                noTray = true;
             } else if (args[i].equals("--help")) {
                 printHelp();
                 return;
@@ -553,9 +556,29 @@ public class CCAPIProxy {
             var proxy = new CCAPIProxy(port, settingsPath);
             proxy.start();
 
-            // Add shutdown hook
+            // Create system tray icon (unless disabled)
+            SystemTrayManager trayManager = null;
+            if (!noTray && SystemTrayManager.isSupported()) {
+                trayManager = new SystemTrayManager(port);
+                final var finalTrayManager = trayManager;
+                trayManager.show(() -> {
+                    System.out.println("\nShutting down proxy server (via system tray)...");
+                    finalTrayManager.hide();
+                    proxy.stop();
+                    System.out.println("Server stopped.");
+                    System.exit(0);
+                });
+            } else if (!noTray) {
+                System.out.println("[PROXY] System tray not available (use Ctrl+C to stop server)");
+            }
+
+            // Add shutdown hook for graceful shutdown (Ctrl+C, etc.)
+            final var finalTrayManagerForHook = trayManager;
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("\nShutting down proxy server...");
+                if (finalTrayManagerForHook != null) {
+                    finalTrayManagerForHook.hide();
+                }
                 proxy.stop();
                 System.out.println("Server stopped.");
             }));
@@ -579,12 +602,19 @@ public class CCAPIProxy {
             "Options:",
             "  --port <port>           Port to listen on (default: 8080)",
             "  --settings <path>       Path to CCAPIsSettings.xml file",
+            "  --no-tray               Disable system tray icon",
             "  --help                  Show this help message",
             "",
             "Examples:",
             "  java xyz.jphil.ccapis.proxy.CCAPIProxy",
             "  java xyz.jphil.ccapis.proxy.CCAPIProxy --port 8080",
-            "  java xyz.jphil.ccapis.proxy.CCAPIProxy --settings /path/to/CCAPIsSettings.xml"
+            "  java xyz.jphil.ccapis.proxy.CCAPIProxy --settings /path/to/CCAPIsSettings.xml",
+            "  javaw xyz.jphil.ccapis.proxy.CCAPIProxy --port 8080",
+            "",
+            "System Tray:",
+            "  When running with javaw.exe (Windows GUI mode), a system tray icon will appear.",
+            "  Right-click the icon to exit the server gracefully.",
+            "  The system tray provides an easy way to stop the server when no console is visible."
         );
     }
 }

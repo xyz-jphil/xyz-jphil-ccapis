@@ -54,8 +54,11 @@ public class ToolCallParser {
             return new ParseResult("", List.of());
         }
 
-        // Parse the entire response with JSoup (handles HTML/XML gracefully)
+        // Parse the entire response with JSoup with whitespace preservation
+        // CRITICAL: prettyPrint(false) is needed to keep newlines!
         var jsoupDoc = Jsoup.parseBodyFragment(responseText);
+        jsoupDoc.outputSettings().prettyPrint(false); // Essential for preserving \n
+
         var body = jsoupDoc.body();
 
         // Check if tool_uses element exists
