@@ -1,0 +1,58 @@
+/* Custom thin scrollbar styling to match dark theme */
+
+/* Scrollbar track (background) */
+.scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane {
+    -fx-background-color: transparent;
+}
+
+/* Vertical scrollbar */
+.scroll-pane .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-padding: 0 2 0 0;
+    -fx-pref-width: 8px;
+}
+
+.scroll-pane .scroll-bar:vertical .track {
+    -fx-background-color: rgba(50, 50, 50, 0.5);
+    -fx-background-radius: 4px;
+    -fx-pref-width: 6px;
+}
+
+.scroll-pane .scroll-bar:vertical .thumb {
+    -fx-background-color: rgba(0, 191, 255, 0.6); /* Semi-transparent blue */
+    -fx-background-radius: 3px;
+    -fx-pref-width: 6px;
+}
+
+.scroll-pane .scroll-bar:vertical .thumb:hover {
+    -fx-background-color: rgba(0, 191, 255, 0.8); /* Brighter on hover */
+}
+
+.scroll-pane .scroll-bar:vertical .thumb:pressed {
+    -fx-background-color: rgba(0, 191, 255, 1.0); /* Full opacity on press */
+}
+
+/* Hide increment/decrement buttons */
+.scroll-pane .scroll-bar:vertical .increment-button,
+.scroll-pane .scroll-bar:vertical .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-pref-height: 0;
+}
+
+.scroll-pane .scroll-bar:vertical .increment-arrow,
+.scroll-pane .scroll-bar:vertical .decrement-arrow {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-shape: "";
+}
+
+/* Horizontal scrollbar (hidden but styled for consistency) */
+.scroll-pane .scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-pref-height: 0;
+}

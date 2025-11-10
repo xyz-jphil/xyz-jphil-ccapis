@@ -31,7 +31,7 @@ public class AccountUsage {
      * Get 5-hour usage percentage
      */
     public double getFiveHourUsagePercent() {
-        if (usageData.fiveHour() == null) {
+        if (usageData == null || usageData.fiveHour() == null) {
             return 0.0;
         }
         return usageData.fiveHour().utilization();
@@ -41,6 +41,9 @@ public class AccountUsage {
      * Get time elapsed percentage for 5-hour window
      */
     public double getFiveHourTimeElapsedPercent() {
+        if (usageData == null) {
+            return 0.0;
+        }
         var fiveHour = usageData.fiveHour();
         if (fiveHour == null || fiveHour.resetsAt() == null) {
             return 0.0;
@@ -88,6 +91,9 @@ public class AccountUsage {
      * Get time remaining until reset
      */
     public String getTimeUntilReset() {
+        if (usageData == null) {
+            return "N/A";
+        }
         var fiveHour = usageData.fiveHour();
         if (fiveHour == null || fiveHour.resetsAt() == null) {
             return "N/A";
@@ -104,6 +110,9 @@ public class AccountUsage {
      * Get cycle reset time in HH:mm format (system local time, rounded to nearest 30-min boundary)
      */
     public String getCycleResetTime() {
+        if (usageData == null) {
+            return "N/A";
+        }
         var fiveHour = usageData.fiveHour();
         if (fiveHour == null || fiveHour.resetsAt() == null) {
             return "N/A";

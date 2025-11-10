@@ -2,22 +2,26 @@ package xyz.jphil.ccapis.usage_tracker.ui;
 
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.fxml.FXMLLoader;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Line;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.util.Duration;
 import xyz.jphil.ccapis.config.CredentialsManager;
 import xyz.jphil.ccapis.listener.UsageUpdateEvent;
+import xyz.jphil.ccapis.model.CCAPICredential;
 import xyz.jphil.ccapis.model.CCAPIsCredentials;
 import xyz.jphil.ccapis.ping.PingService;
 import xyz.jphil.ccapis.usage_tracker.api.UsageApiClient;
@@ -41,11 +45,15 @@ import java.util.concurrent.TimeUnit;
 public class UsageWidget extends Application {
 
     // Removed: REFRESH_INTERVAL_SECONDS - now configurable via settings (usageRefreshIntervalSecs)
-    private static final double WIDGET_WIDTH = 90; // Target: 100-125px
+    private static final double WIDGET_WIDTH = 105; // Increased to accommodate scrollbar (90 + 15 for scrollbar)
     private static final double TITLE_BAR_HEIGHT = 30;
     private static final double ROW_HEIGHT = 32;
+    private static final double MIN_HEIGHT = 100;
+    private static final double MAX_HEIGHT = 400;
 
     private VBox contentBox;
+    private VBox accountsContainer;
+    private ScrollPane scrollPane;
     private SettingsManager settingsManager;
     private CredentialsManager credentialsManager;
     private UsageApiClient apiClient;
@@ -55,6 +63,9 @@ public class UsageWidget extends Application {
     private Stage primaryStage;
     private TrayIcon trayIcon;
     private PingService pingService;
+    private int lastAccountCount = -1; // Track account count to avoid unnecessary resizing
+    private boolean userManuallyResized = false; // Track if user manually resized window
+    private boolean programmaticHeightChange = false; // Track if height change is programmatic
 
     @Override
     public void start(Stage primaryStage) {
@@ -96,11 +107,37 @@ public class UsageWidget extends Application {
         System.out.println("Ping service initialized: interval=" + uiSettings.pingIntervalDurSec() + "s, visible=" + uiSettings.pingMessageVisible());
 
         // Create UI - minimal padding per PRP requirements
-        contentBox = new VBox(2);
-        contentBox.setPadding(new Insets(1));
+        contentBox = new VBox(0);
+        contentBox.setPadding(new Insets(1, 1, 3, 1)); // Extra padding at bottom for resize area
         contentBox.setStyle("-fx-background-color: rgba(30, 30, 30, 0.95); -fx-background-radius: 5;");
 
-        var scene = new Scene(contentBox, WIDGET_WIDTH, 100);
+        // Create accounts container (will hold all account rows)
+        accountsContainer = new VBox(0);
+        accountsContainer.setPadding(Insets.EMPTY);
+
+        // Create scroll pane for accounts
+        scrollPane = new ScrollPane(accountsContainer);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scrollPane.setPadding(Insets.EMPTY);
+        VBox.setVgrow(scrollPane, Priority.ALWAYS);
+
+        // Style scrollbar to match theme - thin dark scrollbar with blue thumb
+        scrollPane.setStyle(
+            "-fx-background: transparent; " +
+            "-fx-background-color: transparent; " +
+            "-fx-focus-color: transparent; " +
+            "-fx-faint-focus-color: transparent;"
+        );
+
+        // Apply custom CSS for scrollbar styling
+        var scrollbarCss = getClass().getResource("/xyz/jphil/ccapis/usage_tracker/ui/scrollbar.css");
+        if (scrollbarCss != null) {
+            scrollPane.getStylesheets().add(scrollbarCss.toExternalForm());
+        }
+
+        var scene = new Scene(contentBox, WIDGET_WIDTH, MIN_HEIGHT);
         scene.setFill(Color.TRANSPARENT);
 
         // Configure stage
@@ -108,6 +145,24 @@ public class UsageWidget extends Application {
         primaryStage.setAlwaysOnTop(true);
         primaryStage.setTitle("CCAPI Usage Tracker");
         primaryStage.setScene(scene);
+        primaryStage.setMinHeight(MIN_HEIGHT);
+        primaryStage.setMaxHeight(MAX_HEIGHT);
+        primaryStage.setResizable(true);
+
+        // Lock width, only allow vertical resizing
+        primaryStage.setMinWidth(WIDGET_WIDTH);
+        primaryStage.setMaxWidth(WIDGET_WIDTH);
+
+        // Save window height when user resizes (but not on programmatic changes)
+        primaryStage.heightProperty().addListener((obs, oldVal, newVal) -> {
+            if (primaryStage.isShowing() && !oldVal.equals(newVal) && !programmaticHeightChange) {
+                saveWindowPosition();
+            }
+        });
+
+        // Enable custom resize since transparent windows don't have native resize handles
+        // Bottom edge resize on contentBox
+        enableResizeBottom(primaryStage, contentBox);
 
         // Setup system tray
         setupSystemTray();
@@ -245,10 +300,16 @@ public class UsageWidget extends Application {
         var headerBox = createHeaderBox();
         contentBox.getChildren().add(headerBox);
 
-        // Add loading message
+        // Add loading message to accounts container
+        accountsContainer.getChildren().clear();
         var loadingLabel = new Label("Loading...");
         loadingLabel.setStyle("-fx-text-fill: #00BFFF; -fx-font-size: 9px; -fx-padding: 10;");
-        contentBox.getChildren().add(loadingLabel);
+        accountsContainer.getChildren().add(loadingLabel);
+
+        // Add scroll pane to content box
+        if (!contentBox.getChildren().contains(scrollPane)) {
+            contentBox.getChildren().add(scrollPane);
+        }
     }
 
     /**
@@ -287,27 +348,156 @@ public class UsageWidget extends Application {
 
         headerBox.getChildren().addAll(title, spacer, hideBtn, closeBtn);
 
-        // Make header draggable
-        makeDraggable(primaryStage, headerBox);
+        // Make header both draggable and resizable (combined functionality)
+        makeHeaderInteractive(primaryStage, headerBox);
 
         return headerBox;
     }
 
+    /**
+     * Refresh usage data for a single account only.
+     * Updates the UI for just this account without fetching data for others.
+     */
+    private void refreshSingleAccount(CCAPICredential credential, HBox rowContainer, UsageWidgetController controller) {
+        var credId = credential.id();
+        System.out.println("\n┌─────────────────────────────────────────────────────────────┐");
+        System.out.println("│ 🔄 SINGLE ACCOUNT REFRESH - " + credId + "                          │");
+        System.out.println("└─────────────────────────────────────────────────────────────┘");
+
+        // Validate credential
+        var baseUrl = credential.resolvedCcapiBaseUrl();
+        if (baseUrl == null || baseUrl.trim().isEmpty()) {
+            System.err.println("  ⚠️  Cannot refresh - ccapiBaseUrl is not set");
+            return;
+        }
+
+        /*if (!credential.active()) {
+            System.out.println(" Forced refresh - credential is inactive");
+            return;
+        }*/
+
+        try {
+            System.out.println("  🌐 Fetching from: " + baseUrl);
+            var usageData = apiClient.fetchUsageWithRetry(credential, 3);
+            var accountUsage = new AccountUsage(credential, usageData);
+
+            // Show usage info
+            if (usageData != null && usageData.fiveHour() != null) {
+                System.out.println("  ✅ Success - Usage: " + String.format("%.1f%%", usageData.fiveHour().utilization()));
+            } else {
+                System.out.println("  ✅ Success - No usage data available");
+            }
+
+            // Update the UI on JavaFX thread
+            Platform.runLater(() -> {
+                controller.updateUsageData(accountUsage, uiSettings.showTime());
+            });
+
+            // Fire usage update event to ping service
+            if (pingService != null) {
+                var event = new UsageUpdateEvent()
+                        .credential(credential)
+                        .usageData(usageData)
+                        .timestamp(System.currentTimeMillis());
+                pingService.onUsageUpdate(event);
+            }
+
+            System.out.println("  ✅ Account refreshed successfully");
+        } catch (Exception e) {
+            System.err.println("  ❌ Failed - " + e.getMessage());
+
+            // Update UI to show error state
+            Platform.runLater(() -> {
+                var accountUsage = new AccountUsage(credential, null);
+                controller.updateUsageData(accountUsage, uiSettings.showTime());
+            });
+        }
+        System.out.println("└─────────────────────────────────────────────────────────────┘\n");
+    }
+
     private void updateUsageData() {
-        var activeCredentials = credentials.getTrackUsageCredentials();
-        if (activeCredentials.isEmpty()) {
+        var timestamp = java.time.LocalDateTime.now().format(
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+        );
+
+        // DEBUG: Show where this call came from
+        var stackTrace = Thread.currentThread().getStackTrace();
+        var caller = stackTrace.length > 2 ? stackTrace[2].getMethodName() : "unknown";
+
+        System.out.println("\n┌─────────────────────────────────────────────────────────────┐");
+        System.out.println("│ 📊 USAGE DATA UPDATE STARTED - " + timestamp + "                  │");
+        System.out.println("│ 🔍 Called from: " + caller + "                                    │");
+        System.out.println("└─────────────────────────────────────────────────────────────┘");
+
+        var trackUsageCredentials = credentials.getTrackUsageCredentials();
+        if (trackUsageCredentials.isEmpty()) {
+            System.err.println("❌ No credentials with trackUsage=true found");
             Platform.runLater(() -> showError("No credentials with trackUsage=true found"));
             return;
         }
 
+        System.out.println("Found " + trackUsageCredentials.size() + " credential(s) with trackUsage=true");
+
+        // DEBUG: Check for duplicate credentials in the list
+        var credIds = trackUsageCredentials.stream().map(c -> c.id()).toList();
+        var uniqueCredIds = new java.util.HashSet<>(credIds);
+        if (credIds.size() != uniqueCredIds.size()) {
+            System.err.println("⚠️  WARNING: Duplicate credentials detected in trackUsage list!");
+            System.err.println("   Total: " + credIds.size() + ", Unique: " + uniqueCredIds.size());
+            System.err.println("   IDs: " + credIds);
+        }
+        System.out.println();
+
         var accountUsages = new ArrayList<AccountUsage>();
-        for (var credential : activeCredentials) {
+        int successCount = 0;
+        int skipCount = 0;
+        int failCount = 0;
+
+        for (var credential : trackUsageCredentials) {
+            var credId = credential.id();
+            System.out.println("Processing: " + credId);
+
+            // Validate credential before attempting to fetch
+            var baseUrl = credential.resolvedCcapiBaseUrl();
+            if (baseUrl == null || baseUrl.trim().isEmpty()) {
+                System.err.println("  ⚠️  Skipped - ccapiBaseUrl is not set (check credentials.xml)");
+                skipCount++;
+                System.out.println();
+                continue; // Don't even show this credential in UI
+            }
+
+            // even if credential is inactive ... 
+            // we should be able to monitor it if trackUsage="true" 
+            // (if trackUsage="true" is not even true ... 
+            // then only it doesn't list in our ui and is out of scope for us)
+            // we have already filtered and only have credentials where trackUsage is true
+            // so there is nothing more to filter.
+            if (false /*!credential.active()*/ ) { 
+                    
+                
+                System.out.println("  ⏸️  Skipped - credential is inactive (active=false)");
+                // Create AccountUsage with null data to show in UI as inactive
+                var accountUsage = new AccountUsage(credential, null);
+                accountUsages.add(accountUsage);
+                System.out.println("  📝 Added to list (inactive) - Total in list: " + accountUsages.size());
+                skipCount++;
+                System.out.println();
+                continue;
+            }
+
             try {
+                System.out.println("  🌐 Fetching from: " + baseUrl);
                 var usageData = apiClient.fetchUsageWithRetry(credential, 3);
                 var accountUsage = new AccountUsage(credential, usageData);
-                accountUsages.add(accountUsage);
 
-                // Fire usage update event to ping service
+                // Show basic usage info (might throw exception if data is malformed)
+                if (usageData != null && usageData.fiveHour() != null) {
+                    System.out.println("  ✅ Success - Usage: " + String.format("%.1f%%", usageData.fiveHour().utilization()));
+                } else {
+                    System.out.println("  ✅ Success - No usage data available");
+                }
+
+                // Fire usage update event to ping service (might also throw)
                 if (pingService != null) {
                     var event = new UsageUpdateEvent()
                             .credential(credential)
@@ -315,8 +505,20 @@ public class UsageWidget extends Application {
                             .timestamp(System.currentTimeMillis());
                     pingService.onUsageUpdate(event);
                 }
+
+                // IMPORTANT: Only add to list AFTER all operations that might throw exceptions
+                // This prevents duplicates when parsing fails after fetch succeeds
+                accountUsages.add(accountUsage);
+                System.out.println("  📝 Added to list (success) - Total in list: " + accountUsages.size());
+                successCount++;
             } catch (Exception e) {
-                System.err.println("Failed to fetch usage for: " + credential.id() + " - " + e.getMessage());
+                System.err.println("  ❌ Failed - " + e.getMessage());
+                failCount++;
+
+                // Create AccountUsage with null data to show error state in UI
+                var accountUsage = new AccountUsage(credential, null);
+                accountUsages.add(accountUsage);
+                System.out.println("  📝 Added to list (failed) - Total in list: " + accountUsages.size());
 
                 // Fire event even on failure (with null usageData)
                 if (pingService != null) {
@@ -327,7 +529,28 @@ public class UsageWidget extends Application {
                     pingService.onUsageUpdate(event);
                 }
             }
+            System.out.println();
         }
+
+        System.out.println("┌─────────────────────────────────────────────────────────────┐");
+        System.out.println("│ UPDATE SUMMARY                                              │");
+        System.out.println("├─────────────────────────────────────────────────────────────┤");
+        System.out.println("│  ✅ Successful: " + String.format("%-2d", successCount) + "                                          │");
+        System.out.println("│  ⏸️  Skipped:    " + String.format("%-2d", skipCount) + "                                          │");
+        System.out.println("│  ❌ Failed:     " + String.format("%-2d", failCount) + "                                          │");
+        System.out.println("│  📊 Total:      " + String.format("%-2d", trackUsageCredentials.size()) + "                                          │");
+        System.out.println("└─────────────────────────────────────────────────────────────┘");
+
+        // DEBUG: Show final account list being sent to UI
+        System.out.println("\n📋 Final AccountUsages list (" + accountUsages.size() + " entries):");
+        for (int i = 0; i < accountUsages.size(); i++) {
+            var au = accountUsages.get(i);
+            var hasData = au.usageData() != null;
+            System.out.println("  [" + i + "] " + au.credential().id() +
+                " - Active: " + au.credential().active() +
+                " - HasData: " + hasData);
+        }
+        System.out.println();
 
         Platform.runLater(() -> displayUsageData(accountUsages));
     }
@@ -339,18 +562,167 @@ public class UsageWidget extends Application {
         var headerBox = createHeaderBox();
         contentBox.getChildren().add(headerBox);
 
-        // Account rows
-        for (var accountUsage : accountUsages) {
+        // Add scroll pane
+        contentBox.getChildren().add(scrollPane);
+
+        // Clear and populate accounts container
+        accountsContainer.getChildren().clear();
+
+        // Account rows with separators
+        for (int i = 0; i < accountUsages.size(); i++) {
+            var accountUsage = accountUsages.get(i);
             var row = createAccountRow(accountUsage);
-            contentBox.getChildren().add(row);
+            accountsContainer.getChildren().add(row);
+
+            // Add separator after each row except the last one
+            if (i < accountUsages.size() - 1) {
+                var separator = createSeparator();
+                accountsContainer.getChildren().add(separator);
+            }
         }
 
-        // Adjust window height - title bar + rows
-        var newHeight = TITLE_BAR_HEIGHT + (accountUsages.size() * ROW_HEIGHT) + 10;
-        primaryStage.setHeight(newHeight);
+        // Only adjust window height if:
+        // 1. First time displaying (lastAccountCount == -1), OR
+        // 2. Account count has changed, AND
+        // 3. User has not manually resized the window
+        if (!userManuallyResized && (lastAccountCount == -1 || lastAccountCount != accountUsages.size())) {
+            var visibleRows = Math.min(accountUsages.size(), 5);
+            var newHeight = TITLE_BAR_HEIGHT + (visibleRows * ROW_HEIGHT) + (visibleRows - 1) * 2 + 10; // +2 per separator
+            newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, newHeight));
+
+            // Mark as programmatic change to prevent save triggering
+            programmaticHeightChange = true;
+            primaryStage.setHeight(newHeight);
+            programmaticHeightChange = false;
+
+            lastAccountCount = accountUsages.size();
+        }
     }
 
+    /**
+     * Create a thin colored separator line between account rows
+     */
+    private Region createSeparator() {
+        var separator = new Region();
+        separator.setPrefHeight(2);
+        separator.setMinHeight(2);
+        separator.setMaxHeight(2);
+        separator.setStyle("-fx-background-color: linear-gradient(to right, transparent, #00BFFF, transparent);");
+        return separator;
+    }
+
+    /**
+     * Create account row using FXML-based UI.
+     * This is the new implementation that uses the hand-made FXML.
+     */
     private HBox createAccountRow(AccountUsage accountUsage) {
+        try {
+            // Load FXML
+            var fxmlLoader = new FXMLLoader(
+                getClass().getResource("/xyz/jphil/ccapis/usage_tracker/ui/usage-widget-row.fxml")
+            );
+            HBox row = fxmlLoader.load();
+
+            // Get controller
+            UsageWidgetController controller = fxmlLoader.getController();
+
+            // Set root container for background color changes
+            controller.setRootContainer(row);
+
+            // Set up callback handlers
+            controller.setOnRefresh(() -> {
+                var credId = accountUsage.credential().id();
+                var timestamp = java.time.LocalDateTime.now().format(
+                    java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+                );
+
+                System.out.println("═══════════════════════════════════════════════════════════");
+                System.out.println("🔄 REFRESH BUTTON CLICKED");
+                System.out.println("  Account: " + credId);
+                System.out.println("  Time: " + timestamp);
+                System.out.println("  Action: Refreshing ONLY this account...");
+                System.out.println("═══════════════════════════════════════════════════════════");
+
+                // Set button to busy state (red, disabled)
+                controller.setRefreshButtonBusy(true);
+
+                try {
+                    // Refresh only this specific account
+                    refreshSingleAccount(accountUsage.credential(), row, controller);
+                } finally {
+                    // Restore button state (normal, enabled)
+                    controller.setRefreshButtonBusy(false);
+                }
+            });
+
+            controller.setOnPing(() -> {
+                var credId = accountUsage.credential().id();
+                var timestamp = java.time.LocalDateTime.now().format(
+                    java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+                );
+                var credName = accountUsage.credential().name();
+                var credEmail = accountUsage.credential().email();
+                var pingEnabled = accountUsage.credential().ping();
+
+                System.out.println("═══════════════════════════════════════════════════════════");
+                System.out.println("🔔 PING BUTTON CLICKED");
+                System.out.println("  Account ID: " + credId);
+                System.out.println("  Name: " + credName);
+                System.out.println("  Email: " + credEmail);
+                System.out.println("  Time: " + timestamp);
+                System.out.println("  Ping Enabled (ping attr): " + pingEnabled);
+
+                // Check if ping is disabled for this credential
+                if (!pingEnabled) {
+                    System.out.println("  ⚠️  WARNING: ping=\"false\" in credentials.xml");
+                    System.out.println("  ⚠️  Manual ping button OVERRIDES this setting");
+                }
+
+                // Set button to busy state (red, disabled)
+                controller.setPingButtonBusy(true);
+
+                try {
+                    // Trigger manual ping for this account (bypasses ping attribute check)
+                    if (pingService != null) {
+                        System.out.println("  Action: Sending manual ping...");
+
+                        // Use manualPing() instead of onUsageUpdate() to bypass ping attribute check
+                        pingService.manualPing(accountUsage.credential());
+
+                        System.out.println("  Status: ✅ Manual ping completed");
+                    } else {
+                        System.out.println("  Status: ⚠️  Ping service not available");
+                    }
+                } catch (Exception e) {
+                    System.err.println("  Status: ❌ Ping failed - " + e.getMessage());
+                } finally {
+                    System.out.println("═══════════════════════════════════════════════════════════");
+                    // Restore button state (normal, enabled)
+                    controller.setPingButtonBusy(false);
+                }
+            });
+
+            // Update UI with data
+            controller.updateUsageData(accountUsage, uiSettings.showTime());
+
+            // Add hover tooltip with detailed status
+            installDetailedTooltip(row, accountUsage);
+
+            return row;
+        } catch (Exception e) {
+            System.err.println("Failed to load FXML for account row: " + e.getMessage());
+            e.printStackTrace();
+            // Fallback to deprecated programmatic UI
+            return createAccountRowProgrammatic(accountUsage);
+        }
+    }
+
+    /**
+     * @deprecated Use {@link #createAccountRow(AccountUsage)} which uses FXML-based UI.
+     * This method is kept for fallback purposes only.
+     */
+    @Deprecated
+    private HBox createAccountRowProgrammatic(AccountUsage accountUsage) {
         // Single horizontal row per PRP requirements
         var row = new HBox(1);
         row.setPadding(new Insets(1));
@@ -452,8 +824,8 @@ public class UsageWidget extends Application {
      */
     private void installDetailedTooltip(HBox node, AccountUsage accountUsage) {
         var tooltip = new Tooltip();
-        tooltip.setShowDelay(Duration.millis(300));
-        tooltip.setHideDelay(Duration.millis(5000));
+        tooltip.setShowDelay(Duration.millis(1000)); // 1 second delay before showing
+        tooltip.setHideDelay(Duration.millis(100));  // Hide quickly after mouse leaves
         tooltip.setStyle("-fx-font-size: 10px; -fx-background-color: rgba(40, 40, 40, 0.95);");
 
         // Build detailed tooltip content
@@ -585,6 +957,94 @@ public class UsageWidget extends Application {
         });
     }
 
+    /**
+     * Makes the header both draggable (for moving window) and resizable from top edge.
+     * Detects if mouse is in resize zone (top 5px), otherwise allows dragging.
+     */
+    private void makeHeaderInteractive(Stage stage, HBox headerNode) {
+        final double RESIZE_MARGIN = 5; // Pixels from top edge to trigger resize
+        final double[] dragXOffset = {0};
+        final double[] dragYOffset = {0};
+        final double[] resizeStartY = {0};
+        final double[] resizeStartHeight = {0};
+        final double[] resizeStartStageY = {0};
+        final boolean[] isResizing = {false};
+        final boolean[] isDragging = {false};
+
+        headerNode.setOnMouseMoved(event -> {
+            // Use screen coordinates to detect if mouse is near top of window
+            var mouseScreenY = event.getScreenY();
+            var windowTop = stage.getY();
+
+            // Change cursor when near top edge
+            if (mouseScreenY <= windowTop + RESIZE_MARGIN) {
+                headerNode.setCursor(javafx.scene.Cursor.N_RESIZE);
+            } else {
+                if (!isResizing[0] && !isDragging[0]) {
+                    headerNode.setCursor(javafx.scene.Cursor.DEFAULT);
+                }
+            }
+        });
+
+        headerNode.setOnMousePressed(event -> {
+            // Use screen coordinates to detect if clicked near top of window
+            var mouseScreenY = event.getScreenY();
+            var windowTop = stage.getY();
+
+            // Start resize if clicked near top edge
+            if (mouseScreenY <= windowTop + RESIZE_MARGIN) {
+                isResizing[0] = true;
+                resizeStartY[0] = event.getScreenY();
+                resizeStartHeight[0] = stage.getHeight();
+                resizeStartStageY[0] = stage.getY();
+                event.consume();
+            } else {
+                // Start drag if NOT in resize zone
+                isDragging[0] = true;
+                dragXOffset[0] = event.getSceneX();
+                dragYOffset[0] = event.getSceneY();
+            }
+        });
+
+        headerNode.setOnMouseDragged(event -> {
+            if (isResizing[0]) {
+                // Handle resize
+                var deltaY = event.getScreenY() - resizeStartY[0];
+                var newHeight = resizeStartHeight[0] - deltaY; // Subtract because dragging up
+                var newY = resizeStartStageY[0] + deltaY;
+
+                // Clamp to min/max height
+                if (newHeight >= MIN_HEIGHT && newHeight <= MAX_HEIGHT) {
+                    stage.setHeight(newHeight);
+                    stage.setY(newY);
+                }
+                event.consume();
+            } else if (isDragging[0]) {
+                // Handle drag (move window)
+                stage.setX(event.getScreenX() - dragXOffset[0]);
+                stage.setY(event.getScreenY() - dragYOffset[0]);
+            }
+        });
+
+        headerNode.setOnMouseReleased(event -> {
+            if (isResizing[0] || isDragging[0]) {
+                if (isResizing[0]) {
+                    userManuallyResized = true; // Mark that user manually resized
+                }
+                isResizing[0] = false;
+                isDragging[0] = false;
+                headerNode.setCursor(javafx.scene.Cursor.DEFAULT);
+                saveWindowPosition(); // Save new position/height
+            }
+        });
+
+        headerNode.setOnMouseExited(event -> {
+            if (!isResizing[0] && !isDragging[0]) {
+                headerNode.setCursor(javafx.scene.Cursor.DEFAULT);
+            }
+        });
+    }
+
     private void makeDraggable(Stage stage, HBox node) {
         final double[] xOffset = {0};
         final double[] yOffset = {0};
@@ -606,37 +1066,99 @@ public class UsageWidget extends Application {
     }
 
     /**
-     * Set window position from settings (lastScreenLoc)
+     * Set window position and height from settings (lastScreenLoc)
+     * Format: "x,y" or "x,y,height"
      * Validates position is within current screen bounds
      */
     private void setWindowPosition(Stage stage) {
+        System.out.println("📍 LOADING window position from settings: " + uiSettings.lastScreenLoc());
         if (uiSettings.lastScreenLoc() != null && !uiSettings.lastScreenLoc().isEmpty()) {
             try {
                 var parts = uiSettings.lastScreenLoc().split(",");
-                if (parts.length == 2) {
+                if (parts.length >= 2) {
                     var x = Double.parseDouble(parts[0].trim());
                     var y = Double.parseDouble(parts[1].trim());
+                    var height = parts.length >= 3 ? Double.parseDouble(parts[2].trim()) : MIN_HEIGHT;
+                    System.out.println("   Parsed: x=" + x + ", y=" + y + ", height=" + height);
+
+                    // Clamp height to valid range
+                    height = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, height));
 
                     // Get screen bounds
                     var screen = javafx.stage.Screen.getPrimary();
                     var bounds = screen.getVisualBounds();
 
-                    // Validate position is within screen bounds
-                    // If beyond screen, reset to center
-                    if (x < bounds.getMinX() || x > bounds.getMaxX() - stage.getWidth() ||
-                        y < bounds.getMinY() || y > bounds.getMaxY() - stage.getHeight()) {
-                        // Position is invalid, use center of screen
+                    // Validate position has positive projection on ANY screen
+                    // Simple overlap check - if window overlaps screen at all, it's valid
+                    // This handles taskbars, multi-monitor setups, and negative coordinates
+
+                    System.out.println("   Primary screen bounds: minX=" + bounds.getMinX() + ", maxX=" + bounds.getMaxX() +
+                                     ", minY=" + bounds.getMinY() + ", maxY=" + bounds.getMaxY());
+
+                    // Check all screens (multi-monitor setup)
+                    var screens = javafx.stage.Screen.getScreens();
+                    System.out.println("   🖥️  Detected " + screens.size() + " screen(s)");
+                    var isVisibleOnAnyScreen = false;
+
+                    for (int i = 0; i < screens.size(); i++) {
+                        var scr = screens.get(i);
+
+                        // Use FULL screen bounds (includes taskbar) instead of visual bounds (excludes taskbar)
+                        var screenBounds = scr.getBounds();
+                        var visualBounds = scr.getVisualBounds();
+
+                        System.out.println("   🖥️  Screen #" + (i+1) + ":");
+                        System.out.println("      Full bounds: minX=" + screenBounds.getMinX() + ", maxX=" + screenBounds.getMaxX());
+                        System.out.println("      Visual bounds: minX=" + visualBounds.getMinX() + " (taskbar excludes " +
+                                         (visualBounds.getMinX() - screenBounds.getMinX()) + "px)");
+
+                        // Check for ANY overlap using rectangle intersection logic
+                        // Window overlaps if: windowRight > screenLeft AND windowLeft < screenRight
+                        //                AND: windowBottom > screenTop AND windowTop < screenBottom
+                        var windowRight = x + WIDGET_WIDTH;
+                        var windowBottom = y + height;
+
+                        var hasOverlap = (windowRight > screenBounds.getMinX()) &&     // Window extends into screen from left
+                                       (x < screenBounds.getMaxX()) &&               // Window starts before screen ends
+                                       (windowBottom > screenBounds.getMinY()) &&    // Window extends into screen from top
+                                       (y < screenBounds.getMaxY());                 // Window starts before screen ends
+
+                        System.out.println("      → Window rect: [" + x + "," + y + " to " + windowRight + "," + windowBottom + "]");
+                        System.out.println("      → Overlap detected: " + hasOverlap);
+
+                        if (hasOverlap) {
+                            isVisibleOnAnyScreen = true;
+                            System.out.println("      ✅ VALID! Window has positive projection on screen");
+                            break;
+                        }
+                    }
+
+                    if (!isVisibleOnAnyScreen) {
+                        // Position is invalid, use center of primary screen
                         x = bounds.getMinX() + (bounds.getWidth() - WIDGET_WIDTH) / 2;
-                        y = bounds.getMinY() + (bounds.getHeight() - 100) / 2;
-                        System.out.println("Window position beyond screen bounds, resetting to center");
+                        y = bounds.getMinY() + (bounds.getHeight() - height) / 2;
+                        System.out.println("   ⚠️  Position not visible on any screen! Resetting to center: x=" + x + ", y=" + y);
 
                         // Save the corrected position
-                        uiSettings.lastScreenLoc(String.format("%.0f,%.0f", x, y));
+                        uiSettings.lastScreenLoc(String.format("%.0f,%.0f,%.0f", x, y, height));
                         saveSettings();
                     }
 
+                    programmaticHeightChange = true;
+                    System.out.println("   🎯 Setting stage position: x=" + x + ", y=" + y + ", height=" + height);
                     stage.setX(x);
                     stage.setY(y);
+                    stage.setHeight(height);
+                    programmaticHeightChange = false;
+
+                    // IMPORTANT: Mark that we loaded from settings so displayUsageData won't override
+                    // We set lastAccountCount to a non-negative value to prevent auto-resize
+                    // The actual account count will be set when displayUsageData is called
+                    if (parts.length >= 3) {
+                        // User has a saved height preference - don't auto-resize
+                        userManuallyResized = true;
+                        System.out.println("Loaded saved window position: x=" + x + ", y=" + y + ", height=" + height);
+                    }
                 }
             } catch (Exception e) {
                 System.err.println("Failed to parse lastScreenLoc: " + e.getMessage());
@@ -645,13 +1167,17 @@ public class UsageWidget extends Application {
     }
 
     /**
-     * Save current window position to settings
+     * Save current window position and height to settings
+     * Format: "x,y,height"
      */
     private void saveWindowPosition() {
         if (primaryStage != null) {
             var x = primaryStage.getX();
             var y = primaryStage.getY();
-            uiSettings.lastScreenLoc(String.format("%.0f,%.0f", x, y));
+            var height = primaryStage.getHeight();
+            var posString = String.format("%.0f,%.0f,%.0f", x, y, height);
+            System.out.println("💾 SAVING window position: " + posString);
+            uiSettings.lastScreenLoc(posString);
             saveSettings();
         }
     }
@@ -692,6 +1218,76 @@ public class UsageWidget extends Application {
             e.printStackTrace();
         }
     }
+
+    /**
+     * Enable custom vertical resize from bottom edge for transparent window
+     * Detects mouse at bottom edge and allows dragging to resize downward
+     */
+    private void enableResizeBottom(Stage stage, VBox rootNode) {
+        final double RESIZE_MARGIN = 8; // Pixels from bottom edge to detect resize
+        final double[] resizeStartY = {0};
+        final double[] resizeStartHeight = {0};
+        final boolean[] isResizing = {false};
+
+        rootNode.setOnMouseMoved(event -> {
+            // Use screen coordinates to detect if mouse is near bottom of window
+            var mouseScreenY = event.getScreenY();
+            var windowBottom = stage.getY() + stage.getHeight();
+
+            // Change cursor when near bottom edge
+            if (mouseScreenY >= windowBottom - RESIZE_MARGIN) {
+                rootNode.setCursor(javafx.scene.Cursor.S_RESIZE);
+            } else {
+                if (!isResizing[0]) {
+                    rootNode.setCursor(javafx.scene.Cursor.DEFAULT);
+                }
+            }
+        });
+
+        rootNode.setOnMousePressed(event -> {
+            // Use screen coordinates to detect if clicked near bottom of window
+            var mouseScreenY = event.getScreenY();
+            var windowBottom = stage.getY() + stage.getHeight();
+
+            // Start resize if clicked near bottom edge
+            if (mouseScreenY >= windowBottom - RESIZE_MARGIN) {
+                isResizing[0] = true;
+                resizeStartY[0] = event.getScreenY();
+                resizeStartHeight[0] = stage.getHeight();
+                event.consume();
+            }
+        });
+
+        rootNode.setOnMouseDragged(event -> {
+            if (isResizing[0]) {
+                var deltaY = event.getScreenY() - resizeStartY[0];
+                var newHeight = resizeStartHeight[0] + deltaY;
+
+                // Clamp to min/max height
+                newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, newHeight));
+
+                stage.setHeight(newHeight);
+                event.consume();
+            }
+        });
+
+        rootNode.setOnMouseReleased(event -> {
+            if (isResizing[0]) {
+                userManuallyResized = true; // Mark that user manually resized
+                isResizing[0] = false;
+                rootNode.setCursor(javafx.scene.Cursor.DEFAULT);
+                saveWindowPosition(); // Save new height
+                event.consume();
+            }
+        });
+
+        rootNode.setOnMouseExited(event -> {
+            if (!isResizing[0]) {
+                rootNode.setCursor(javafx.scene.Cursor.DEFAULT);
+            }
+        });
+    }
+
 
     public static void main(String[] args) {
         launch(args);

@@ -16,7 +16,7 @@ import java.time.OffsetDateTime;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Usage {
     @JsonProperty("utilization")
-    int utilization;
+    double utilization; // Changed from int to double - API returns decimal percentages
 
     @JsonProperty("resets_at")
     OffsetDateTime resetsAt;

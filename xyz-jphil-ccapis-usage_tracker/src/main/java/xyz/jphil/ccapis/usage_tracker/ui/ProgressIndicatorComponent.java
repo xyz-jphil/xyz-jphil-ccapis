@@ -12,7 +12,12 @@ import javafx.scene.shape.Rectangle;
  * Custom compact progress indicator using Rectangle shapes.
  * Shows percentage text above a colored progress bar.
  * Used for both usage and time progress indicators with same width for visual comparison.
+ *
+ * @deprecated This component is no longer used with the FXML-based UI.
+ *             Progress indicators are now defined directly in FXML.
+ *             This class is kept for compatibility with the deprecated programmatic UI fallback.
  */
+@Deprecated
 public class ProgressIndicatorComponent extends VBox {
 
     private static final double PROGRESS_BAR_WIDTH = 38;

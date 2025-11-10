@@ -91,12 +91,12 @@ public class AccountHealthMonitor {
                     // Secondary sort: by usage (lower utilization first)
                     var usageA = healthA.latestUsage() != null &&
                                  healthA.latestUsage().fiveHour() != null ?
-                                 healthA.latestUsage().fiveHour().utilization() : 0;
+                                 healthA.latestUsage().fiveHour().utilization() : 0.0;
                     var usageB = healthB.latestUsage() != null &&
                                  healthB.latestUsage().fiveHour() != null ?
-                                 healthB.latestUsage().fiveHour().utilization() : 0;
+                                 healthB.latestUsage().fiveHour().utilization() : 0.0;
 
-                    return Integer.compare(usageA, usageB);
+                    return Double.compare(usageA, usageB);
                 })
                 .collect(Collectors.toList());
     }

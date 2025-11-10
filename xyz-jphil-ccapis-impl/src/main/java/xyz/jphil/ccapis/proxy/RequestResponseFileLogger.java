@@ -211,6 +211,13 @@ public class RequestResponseFileLogger {
     }
 
     /**
+     * Get the logs directory (conversation directory)
+     */
+    public Path getLogsDirectory() {
+        return logsDirectory;
+    }
+
+    /**
      * Represents a complete HTTP transaction (request + response)
      */
     @Data

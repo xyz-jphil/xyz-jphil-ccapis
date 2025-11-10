@@ -49,6 +49,12 @@ public class UsageApiClient {
     public UsageData fetchUsage(CCAPICredential credential) throws IOException {
         // Use credential's own baseUrl (overrides the one passed to constructor)
         var credentialBaseUrl = credential.resolvedCcapiBaseUrl();
+
+        // Validate baseUrl is not null
+        if (credentialBaseUrl == null || credentialBaseUrl.trim().isEmpty()) {
+            throw new IOException("ccapiBaseUrl is not set for credential: " + credential.id());
+        }
+
         if (!credentialBaseUrl.startsWith("http://") && !credentialBaseUrl.startsWith("https://")) {
             credentialBaseUrl = "https://" + credentialBaseUrl;
         }
@@ -101,6 +107,9 @@ public class UsageApiClient {
                 return fetchUsage(credential);
             } catch (IOException e) {
                 lastException = e;
+                if (isVerboseMode()) {
+                    System.err.println("[DEBUG] Retry " + (i + 1) + "/" + maxRetries + " for " + credential.id() + ": " + e.getMessage());
+                }
                 // Wait before retry (exponential backoff)
                 try {
                     Thread.sleep((long) Math.pow(2, i) * 1000);
@@ -111,7 +120,20 @@ public class UsageApiClient {
             }
         }
 
-        throw new RuntimeException("Failed to fetch usage after " + maxRetries + " retries", lastException);
+        // Build detailed error message
+        var errorMsg = String.format("Failed to fetch usage after %d retries for credential '%s'",
+            maxRetries, credential.id());
+
+        if (lastException != null) {
+            var detailedMsg = lastException.getMessage();
+            if (detailedMsg != null && detailedMsg.contains("ccapiBaseUrl")) {
+                errorMsg += " - ccapiBaseUrl is missing or invalid in credentials.xml";
+            } else {
+                errorMsg += " - " + detailedMsg;
+            }
+        }
+
+        throw new RuntimeException(errorMsg, lastException);
     }
 
     /**

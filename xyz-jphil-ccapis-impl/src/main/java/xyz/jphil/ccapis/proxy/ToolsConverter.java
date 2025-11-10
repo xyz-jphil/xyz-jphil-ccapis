@@ -1,14 +1,12 @@
 package xyz.jphil.ccapis.proxy;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import luvml.o.XHtmlStringRenderer;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import static luvml.T.t;
-import static xyz.jphil.ccapis.proxy.toolcalls.ToolCallsDsl.*;
+import static xyz.jphil.ccapis.proxy.CcapiXmlElements.*;
 
 /**
  * Converts Anthropic API tool definitions to text format for CCAPI
@@ -29,21 +27,12 @@ public class ToolsConverter {
             return "";
         }
 
-        // Generate example XML using LUVML
-        var exampleXml = XHtmlStringRenderer.asSingleLine(
-            toolUses(
-                useTool(name("tool_name"),
-                    parameter(name("param_name"), t("value"))
-                )
-            )
-        );
-
         var result = new StringBuilder();
         result.append("# Available Tools\n\n");
-        result.append("IMPORTANT: You MUST use <use_tool> tags, NOT <invoke> tags. The <invoke> tag will cause errors.\n\n");
+        result.append("IMPORTANT: You MUST use <tool_use> tags (Anthropic format). Do NOT use <invoke> or <use_tool> tags.\n\n");
         result.append("Use tools by outputting XML in EXACTLY this format:\n");
-        result.append(exampleXml).append("\n\n");
-        result.append("CRITICAL: Use <use_tool name=\"...\"> NOT <invoke name=\"...\">. The tag name MUST be 'use_tool'.\n\n");
+        result.append(TOOL_CALL_EXAMPLE).append("\n\n");
+        result.append("CRITICAL: Use <tool_use name=\"...\"> with the standard Anthropic format. The tag name MUST be 'tool_use'.\n\n");
 
         // Convert each tool
         for (var tool : tools) {

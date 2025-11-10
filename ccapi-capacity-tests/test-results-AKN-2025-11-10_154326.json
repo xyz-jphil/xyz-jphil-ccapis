@@ -1,0 +1,69 @@
+{
+  "testMetadata" : {
+    "testId" : "test-AKN-2025-11-10_154238",
+    "accountId" : "cdb62505-4fa5-4114-8beb-b875cf344ea5",
+    "accountName" : "AKN",
+    "testType" : "FEW_HEAVY_INPUT",
+    "testStart" : "2025-11-10T13:42:38.895880900Z",
+    "testEnd" : "2025-11-10T13:42:58.133313700Z",
+    "durationSeconds" : 19,
+    "initialUsagePct" : 0.0,
+    "finalUsagePct" : 22.0,
+    "conversationId" : "f047565e-589c-4a75-9079-4c7a17b1a1c6"
+  },
+  "testSummary" : {
+    "totalRequests" : 3,
+    "successfulRequests" : 3,
+    "failedRequests" : 0,
+    "hit429" : false,
+    "totalInputTokens" : 12015,
+    "totalOutputTokens" : 6,
+    "totalTokens" : 12021,
+    "avgInputPerRequest" : 4005,
+    "avgOutputPerRequest" : 2,
+    "inputOutputRatio" : 2002.5,
+    "totalCostUsd" : 0.036135,
+    "avgCostPerRequest" : 0.012045,
+    "avgResponseTimeMs" : 4409.333333333333
+  },
+  "requestRecords" : [ {
+    "requestNum" : 1,
+    "timestamp" : "2025-11-10T13:42:43.762260500Z",
+    "inputTokens" : 4005,
+    "outputTokens" : 2,
+    "totalTokens" : 4007,
+    "costUsd" : 0.012045,
+    "durationMs" : 4866,
+    "statusCode" : 200,
+    "error" : null,
+    "cumulativeInput" : 4005,
+    "cumulativeOutput" : 2,
+    "cumulativeCost" : 0.012045
+  }, {
+    "requestNum" : 2,
+    "timestamp" : "2025-11-10T13:42:51.628604800Z",
+    "inputTokens" : 4005,
+    "outputTokens" : 2,
+    "totalTokens" : 4007,
+    "costUsd" : 0.012045,
+    "durationMs" : 4863,
+    "statusCode" : 200,
+    "error" : null,
+    "cumulativeInput" : 8010,
+    "cumulativeOutput" : 4,
+    "cumulativeCost" : 0.02409
+  }, {
+    "requestNum" : 3,
+    "timestamp" : "2025-11-10T13:42:58.130821100Z",
+    "inputTokens" : 4005,
+    "outputTokens" : 2,
+    "totalTokens" : 4007,
+    "costUsd" : 0.012045,
+    "durationMs" : 3499,
+    "statusCode" : 200,
+    "error" : null,
+    "cumulativeInput" : 12015,
+    "cumulativeOutput" : 6,
+    "cumulativeCost" : 0.036135
+  } ]
+}

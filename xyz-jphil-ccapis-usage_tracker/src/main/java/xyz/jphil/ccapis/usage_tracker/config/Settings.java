@@ -37,7 +37,7 @@ public class Settings {
         private int idMaxLen = 10; // Maximum length of account ID to display
 
         @XmlAttribute(name = "lastScreenLoc")
-        private String lastScreenLoc; // Format: "x,y" - last screen position for window (auto-saved)
+        private String lastScreenLoc; // Format: "x,y,height" - last screen position and height for window (auto-saved)
 
         @XmlAttribute(name = "usageRefreshIntervalSecs", required = false)
         private Integer usageRefreshIntervalSecs; // Refresh interval in seconds (default: 60)

@@ -98,6 +98,12 @@ public class MessageToPromptConverter {
 
         if (userMessage != null) {
             result.append(userMessage.getTextContent());
+
+            // Add prompt injection nudge if tools are available (PRP-15: prevent colon stop-sequence)
+            if (request.getTools() != null && !request.getTools().isEmpty()) {
+                result.append("\n\n")
+                      .append("(If you need to use tools, please use the tool_use format provided above)");
+            }
         }
 
         return result.toString();
@@ -136,18 +142,30 @@ public class MessageToPromptConverter {
         // Add conversation messages with collision-free tags
         int userIndex = 0;
         int assistantIndex = 0;
+        boolean isLastMessage = false;
+        boolean hasTools = request.getTools() != null && !request.getTools().isEmpty();
 
-        for (var message : messages) {
+        for (int i = 0; i < messages.size(); i++) {
+            var message = messages.get(i);
             var content = message.getTextContent();
             if (content.isEmpty()) {
                 continue;
             }
 
+            isLastMessage = (i == messages.size() - 1);
+
             if ("user".equals(message.getRole())) {
                 var tag = findNonCollidingTag(TAG_USER, allContent, userIndex);
                 result.append("<").append(tag).append(">")
-                      .append(content)
-                      .append("</").append(tag).append(">\n\n");
+                      .append(content);
+
+                // Add prompt injection nudge to last user message if tools available (PRP-15)
+                if (isLastMessage && hasTools) {
+                    result.append("\n\n")
+                          .append("(If you need to use tools, please use the tool_use format provided above)");
+                }
+
+                result.append("</").append(tag).append(">\n\n");
                 userIndex++;
             } else if ("assistant".equals(message.getRole())) {
                 var tag = findNonCollidingTag(TAG_ASSISTANT, allContent, assistantIndex);

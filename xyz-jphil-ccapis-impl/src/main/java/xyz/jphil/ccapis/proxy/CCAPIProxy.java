@@ -151,8 +151,8 @@ public class CCAPIProxy {
      */
     private int getUsagePercent(CCAPICredential credential) {
         var health = healthCheckClient.getHealthMonitor().getHealth(credential.id());
-        if (health.latestUsage() != null && health.latestUsage().fiveHour() != null) {
-            return health.latestUsage().fiveHour().utilization();
+        if (health != null && health.latestUsage() != null && health.latestUsage().fiveHour() != null) {
+            return (int) health.latestUsage().fiveHour().utilization();
         }
         return 0;
     }
@@ -262,13 +262,18 @@ public class CCAPIProxy {
         // Log converted prompt
         debugLogger.logConvertedPrompt(prompt);
 
-        // Debug logging (legacy - keeping for console output)
-        System.out.println("\n[PROXY] Streaming request received");
-        System.out.println("[PROXY] Converted prompt length: " + prompt.length() + " chars");
+        // Terse account routing info
+        var health = healthCheckClient.getHealthMonitor().getHealth(credential.id());
+        var usageStr = health.latestUsage() != null && health.latestUsage().fiveHour() != null
+            ? String.format("%d%%", (int) health.latestUsage().fiveHour().utilization())
+            : "?";
+        System.out.println(String.format("\n[PROXY] Streaming via %s [%s, usage:%s]",
+            credential.id(), health.state(), usageStr));
 
         // Create temporary conversation (or visible conversation based on settings)
         var isTemporary = !individualMessagesVisible;
 
+        // Create conversation (doesn't need health check - just metadata)
         var conversation = ccapiClient.createChat(
             credential,
             "Proxy-" + Instant.now().toEpochMilli(),
@@ -300,6 +305,8 @@ public class CCAPIProxy {
             var fullResponse = new StringBuilder();
 
             // Send message with streaming callbacks
+            // Note: Streaming doesn't go through healthCheckClient because callbacks need to be immediate
+            // Health tracking happens via usage monitoring in healthCheckClient.selectBestAccount()
             ccapiClient.sendMessageStreaming(credential, conversation.uuid(), prompt, text -> {
                 try {
                     // Log streaming chunk
@@ -318,7 +325,10 @@ public class CCAPIProxy {
             debugLogger.logCcapiResponse(fullResponse.toString());
 
             // Parse tool calls from the full response
-            var parseResult = xyz.jphil.ccapis.proxy.toolcalls.ToolCallParser.parse(fullResponse.toString());
+            var parseResult = xyz.jphil.ccapis.proxy.toolcalls.ToolCallParser.parse(fullResponse.toString(), debugLogger);
+
+            // Check for tool call failure nudge (PRP-15: diagnostic logging)
+            checkForToolCallFailure(request, fullResponse.toString(), parseResult.hasToolCalls());
 
             // Send content_block_stop event for text
             writeSSE(outputStream, StreamingChunk.contentBlockStop(0));
@@ -389,21 +399,26 @@ public class CCAPIProxy {
         // Log converted prompt
         debugLogger.logConvertedPrompt(prompt);
 
-        // Debug logging (legacy - keeping for console output)
-        System.out.println("\n[PROXY] Non-streaming request received");
-        System.out.println("[PROXY] Converted prompt length: " + prompt.length() + " chars");
+        // Terse account routing info
+        var health = healthCheckClient.getHealthMonitor().getHealth(credential.id());
+        var usageStr = health.latestUsage() != null && health.latestUsage().fiveHour() != null
+            ? String.format("%d%%", (int) health.latestUsage().fiveHour().utilization())
+            : "?";
+        System.out.println(String.format("\n[PROXY] Non-streaming via %s [%s, usage:%s]",
+            credential.id(), health.state(), usageStr));
 
         // Create temporary conversation (or visible conversation based on settings)
         var isTemporary = !individualMessagesVisible;
 
+        // Create conversation (doesn't need health check - just metadata)
         var conversation = ccapiClient.createChat(
             credential,
             "Proxy-" + Instant.now().toEpochMilli(),
             isTemporary
         );
 
-        // Send message and get response
-        var responseText = ccapiClient.sendMessage(credential, conversation.uuid(), prompt);
+        // Send message and get response (with health check wrapper)
+        var responseText = healthCheckClient.sendMessage(credential, conversation.uuid(), prompt);
 
         // Log raw SSE response
         debugLogger.logCcapiResponse(responseText);
@@ -413,7 +428,10 @@ public class CCAPIProxy {
         var fullText = parser.parse(responseText);
 
         // Parse tool calls from the response
-        var parseResult = xyz.jphil.ccapis.proxy.toolcalls.ToolCallParser.parse(fullText);
+        var parseResult = xyz.jphil.ccapis.proxy.toolcalls.ToolCallParser.parse(fullText, debugLogger);
+
+        // Check for tool call failure nudge (PRP-15: diagnostic logging)
+        checkForToolCallFailure(request, fullText, parseResult.hasToolCalls());
 
         // Generate response
         var messageId = "msg_" + System.currentTimeMillis();
@@ -481,6 +499,69 @@ public class CCAPIProxy {
         }
         // Rough estimate: ~4 characters per token
         return Math.max(1, text.length() / 4);
+    }
+
+    /**
+     * Check for tool call failure pattern (PRP-15: diagnostic logging)
+     * Uses scoring system on last sentence to detect likely failures:
+     * - Last sentence ends with colon: +1 point
+     * - Last sentence contains intent phrase (I'll, Let me, etc.): +1 point
+     * - Score >= 2: Log warning (likely tool call failure)
+     * - Score < 2: Ignore (probably legitimate response)
+     *
+     * Note: "I'll now" / "Let me now" are stronger indicators (future enhancement)
+     */
+    private void checkForToolCallFailure(AnthropicRequest request, String responseText, boolean hasToolCalls) {
+        // Only check if tools were available in the request
+        if (request.getTools() == null || request.getTools().isEmpty()) {
+            return;
+        }
+
+        // If tool calls were successfully generated, no issue
+        if (hasToolCalls) {
+            return;
+        }
+
+        var trimmedResponse = responseText.trim();
+
+        // Extract last sentence (split by . ! ?)
+        var sentences = trimmedResponse.split("[.!?]");
+        if (sentences.length == 0) {
+            return;
+        }
+
+        var lastSentence = sentences[sentences.length - 1].trim();
+        if (lastSentence.isEmpty()) {
+            return;
+        }
+
+        var lowerLastSentence = lastSentence.toLowerCase();
+        int score = 0;
+        var reasons = new java.util.ArrayList<String>();
+
+        // Pattern 1: Last sentence ends with colon (with optional whitespace)
+        // Matches: ":" or ": " or " :" or " : "
+        if (lastSentence.matches(".*\\s?:\\s?$")) {
+            score++;
+            reasons.add("ends with colon");
+        }
+
+        // Pattern 2: Last sentence contains intent indicators (case-insensitive)
+        // Matches: "I'll", "Let me", "I will", "I'm going to", etc.
+        if (lowerLastSentence.matches(".*(i'll|let me|i will|i'm going to|i am going to).*")) {
+            score++;
+            reasons.add("contains intent phrase");
+        }
+
+        // Log warning only if score >= 2 (likely failure)
+        if (score >= 2) {
+            debugLogger.logWarning("[PRP-15] Tool call failure detected! " +
+                "Score: " + score + "/3, " +
+                "Reasons: " + String.join(", ", reasons) + ". " +
+                "Model: " + request.getModel() + ", " +
+                "Response length: " + trimmedResponse.length() + " chars, " +
+                "Last sentence: \"" + lastSentence + "\"");
+        }
     }
 
     /**

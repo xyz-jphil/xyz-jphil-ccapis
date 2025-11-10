@@ -315,6 +315,31 @@ public class DebugLogger {
     }
 
     /**
+     * Log warning message
+     */
+    public void logWarning(String message) {
+        var sb = new StringBuilder();
+        sb.append("[").append(timestamp()).append("] WARNING: ");
+        sb.append(message).append("\n");
+
+        logToConsole(sb.toString());
+        logToFile(sb.toString());
+    }
+
+    /**
+     * Log type conversion decision (XML string to typed value)
+     * Creates dedicated type-conversion.log file in conversation directory
+     */
+    public void logTypeConversion(String message) {
+        var sb = new StringBuilder();
+        sb.append("[").append(timestamp()).append("] ");
+        sb.append(message).append("\n");
+
+        // Log to dedicated type conversion file
+        logToTypeConversionFile(sb.toString());
+    }
+
+    /**
      * Log error
      */
     public void logError(String message, Throwable error) {
@@ -398,5 +423,26 @@ public class DebugLogger {
      */
     public boolean isIndividualFileLoggingEnabled() {
         return fileLogger != null;
+    }
+
+    /**
+     * Log to dedicated type conversion file (type-conversion.log in conversation directory)
+     */
+    private void logToTypeConversionFile(String message) {
+        if (!isIndividualFileLoggingEnabled()) {
+            return;
+        }
+
+        try {
+            var typeConversionFile = fileLogger.getLogsDirectory().resolve("type-conversion.log");
+            Files.writeString(
+                typeConversionFile,
+                message,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            );
+        } catch (IOException e) {
+            System.err.println("Failed to write to type-conversion.log: " + e.getMessage());
+        }
     }
 }

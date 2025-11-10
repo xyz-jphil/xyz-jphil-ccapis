@@ -1,0 +1,56 @@
+{
+  "testMetadata" : {
+    "testId" : "test-SCM-2025-11-10_154652",
+    "accountId" : "d36db871-a02b-4256-a45e-7155f68cc6a4",
+    "accountName" : "SCM",
+    "testType" : "FEW_HEAVY_OUTPUT",
+    "testStart" : "2025-11-10T13:46:52.368881300Z",
+    "testEnd" : "2025-11-10T13:49:53.273017Z",
+    "durationSeconds" : 180,
+    "initialUsagePct" : 5.0,
+    "finalUsagePct" : 42.0,
+    "conversationId" : "0c571d86-67ed-47f5-a754-f5f4ba8a2f9b"
+  },
+  "testSummary" : {
+    "totalRequests" : 2,
+    "successfulRequests" : 2,
+    "failedRequests" : 0,
+    "hit429" : false,
+    "totalInputTokens" : 29,
+    "totalOutputTokens" : 6318,
+    "totalTokens" : 6347,
+    "avgInputPerRequest" : 14,
+    "avgOutputPerRequest" : 3159,
+    "inputOutputRatio" : 0.004590060145615701,
+    "totalCostUsd" : 0.094857,
+    "avgCostPerRequest" : 0.0474285,
+    "avgResponseTimeMs" : 88949.5
+  },
+  "requestRecords" : [ {
+    "requestNum" : 1,
+    "timestamp" : "2025-11-10T13:48:27.096991800Z",
+    "inputTokens" : 15,
+    "outputTokens" : 3279,
+    "totalTokens" : 3294,
+    "costUsd" : 0.04923,
+    "durationMs" : 94727,
+    "statusCode" : 200,
+    "error" : null,
+    "cumulativeInput" : 15,
+    "cumulativeOutput" : 3279,
+    "cumulativeCost" : 0.04923
+  }, {
+    "requestNum" : 2,
+    "timestamp" : "2025-11-10T13:49:53.272051300Z",
+    "inputTokens" : 14,
+    "outputTokens" : 3039,
+    "totalTokens" : 3053,
+    "costUsd" : 0.045627,
+    "durationMs" : 83172,
+    "statusCode" : 200,
+    "error" : null,
+    "cumulativeInput" : 29,
+    "cumulativeOutput" : 6318,
+    "cumulativeCost" : 0.094857
+  } ]
+}
