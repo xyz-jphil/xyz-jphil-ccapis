@@ -135,9 +135,9 @@ public class ConversationDownloaderCLI {
             credentialsToTry = List.of(credential);
             System.out.println("Using account: " + credential.id() + " (" + credential.name() + ")");
         } else {
-            // Try all active credentials
-            credentialsToTry = credentials.getActiveCredentials();
-            System.out.println("Trying all " + credentialsToTry.size() + " active credentials...");
+            // Try all credentials (both active and inactive)
+            credentialsToTry = credentials.credentials();
+            System.out.println("Trying all " + credentialsToTry.size() + " credentials (active and inactive)...");
         }
 
         // Try fetching conversation with each credential

@@ -12,14 +12,21 @@ import java.util.stream.Collectors;
 /**
  * Centralized monitor for tracking health of all CCAPI accounts.
  * Thread-safe for concurrent access.
+ *
+ * Enhanced with predictive quota tracking (PRP-20):
+ * - Tracks predicted quota usage alongside API-reported usage
+ * - Enables proactive account rotation before hitting limits
+ * - Validates PRP-19 formula accuracy in production
  */
 public class AccountHealthMonitor {
 
     private final Map<String, AccountHealth> healthMap = new ConcurrentHashMap<>();
     private final CircuitBreakerConfig config;
+    private final PredictiveUsageTracker predictiveTracker;
 
     public AccountHealthMonitor(CircuitBreakerConfig config) {
         this.config = config != null ? config : new CircuitBreakerConfig();
+        this.predictiveTracker = new PredictiveUsageTracker();
     }
 
     /**
@@ -45,9 +52,48 @@ public class AccountHealthMonitor {
 
     /**
      * Update usage data for an account and check quota exhaustion.
+     * Syncs with predictive tracker and logs comparison.
      */
     public void updateUsage(String accountId, UsageData usage) {
         getHealth(accountId).updateUsage(usage, config);
+
+        // Sync predictive tracker with actual API usage
+        if (usage != null && usage.fiveHour() != null) {
+            var apiUsage = usage.fiveHour().utilization();
+            predictiveTracker.syncWithApiUsage(accountId, apiUsage);
+
+            // Log comparison for validation (info level)
+            var comparison = predictiveTracker.getComparisonLog(accountId, apiUsage);
+            System.out.println("[PREDICT] " + accountId + ": " + comparison);
+        }
+    }
+
+    /**
+     * Record predicted quota usage before making a request.
+     * Call this before sendMessage() to track predicted quota.
+     *
+     * @param accountId Account identifier
+     * @param inputTokens Estimated input tokens
+     * @param outputTokens Estimated output tokens
+     * @return Predicted quota increase percentage
+     */
+    public double recordPredictedRequest(String accountId, int inputTokens, int outputTokens) {
+        var quotaIncrease = QuotaPredictor.predictQuotaUsage(inputTokens, outputTokens);
+        predictiveTracker.recordPredictedUsage(accountId, quotaIncrease);
+
+        // Log prediction (fine level)
+        var health = getHealth(accountId);
+        var currentApiUsage = health.latestUsage() != null && health.latestUsage().fiveHour() != null
+            ? health.latestUsage().fiveHour().utilization()
+            : 0.0;
+
+        var predicted = predictiveTracker.getPredictedUsage(accountId);
+        System.out.println(String.format(
+            "[PREDICT] %s: Request will use ~%.1f%% quota (API: %.1f%%, predicted after: %.1f%%)",
+            accountId, quotaIncrease, currentApiUsage, predicted
+        ));
+
+        return quotaIncrease;
     }
 
     /**
@@ -159,5 +205,32 @@ public class AccountHealthMonitor {
      */
     public CircuitBreakerConfig getConfig() {
         return config;
+    }
+
+    /**
+     * Get predictive usage tracker.
+     */
+    public PredictiveUsageTracker getPredictiveTracker() {
+        return predictiveTracker;
+    }
+
+    /**
+     * Get predicted usage percentage for an account.
+     *
+     * @param accountId Account identifier
+     * @return Predicted usage percentage
+     */
+    public double getPredictedUsage(String accountId) {
+        return predictiveTracker.getPredictedUsage(accountId);
+    }
+
+    /**
+     * Get number of consecutive requests for an account.
+     *
+     * @param accountId Account identifier
+     * @return Request count since last API sync
+     */
+    public int getConsecutiveRequests(String accountId) {
+        return predictiveTracker.getRequestCount(accountId);
     }
 }

@@ -304,6 +304,15 @@ public class CCAPIProxy {
             // Track full response for logging
             var fullResponse = new StringBuilder();
 
+            // PRP-24: Record predicted quota usage BEFORE making request
+            int inputTokens = estimateTokens(prompt);
+            int estimatedOutputTokens = 1000; // Conservative estimate for streaming (will be corrected by API sync)
+            healthCheckClient.getHealthMonitor().recordPredictedRequest(
+                credential.id(),
+                inputTokens,
+                estimatedOutputTokens
+            );
+
             // Send message with streaming callbacks
             // Note: Streaming doesn't go through healthCheckClient because callbacks need to be immediate
             // Health tracking happens via usage monitoring in healthCheckClient.selectBestAccount()
@@ -415,6 +424,15 @@ public class CCAPIProxy {
             credential,
             "Proxy-" + Instant.now().toEpochMilli(),
             isTemporary
+        );
+
+        // PRP-24: Record predicted quota usage BEFORE making request
+        int inputTokens = estimateTokens(prompt);
+        int estimatedOutputTokens = 1000; // Conservative estimate (will be corrected by API sync)
+        healthCheckClient.getHealthMonitor().recordPredictedRequest(
+            credential.id(),
+            inputTokens,
+            estimatedOutputTokens
         );
 
         // Send message and get response (with health check wrapper)
@@ -662,6 +680,20 @@ public class CCAPIProxy {
                 }
                 proxy.stop();
                 System.out.println("Server stopped.");
+
+                // Force exit if threads don't die within 2 seconds
+                // This prevents hanging when Jetty threads don't shutdown gracefully
+                var forceExitThread = new Thread(() -> {
+                    try {
+                        Thread.sleep(2000);
+                        System.err.println("Forcing JVM exit (some threads didn't stop gracefully)...");
+                        System.exit(0);
+                    } catch (InterruptedException e) {
+                        // Shutdown completed before timeout, ignore
+                    }
+                }, "ForceExitWatchdog");
+                forceExitThread.setDaemon(true);
+                forceExitThread.start();
             }));
 
         } catch (Exception e) {

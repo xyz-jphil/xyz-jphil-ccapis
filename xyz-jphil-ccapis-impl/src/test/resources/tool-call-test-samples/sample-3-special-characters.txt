@@ -1,0 +1,6 @@
+Running the command:
+
+<tool_use name="Bash">
+<parameter name="command">cd /tmp && ls -la</parameter>
+<parameter name="description">List files in tmp directory</parameter>
+</tool_use>

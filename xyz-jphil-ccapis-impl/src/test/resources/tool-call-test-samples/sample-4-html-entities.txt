@@ -1,0 +1,13 @@
+Writing code with special characters:
+
+<tool_use name="Write">
+<parameter name="file_path">Test.java</parameter>
+<parameter name="content">public class Test {
+    public static void main(String[] args) {
+        String html = "<div>Hello &amp; Goodbye</div>";
+        boolean condition = x > 5 && y < 10;
+        System.out.println("Test: " + condition);
+    }
+}
+</parameter>
+</tool_use>

@@ -1,0 +1,17 @@
+Here's the configuration file:
+
+<tool_use name="Write">
+<parameter name="file_path">config.xml</parameter>
+<parameter name="content"><Config>
+    <DatabaseConnection>
+        <HostName>localhost</HostName>
+        <PortNumber>5432</PortNumber>
+        <UserName>admin</UserName>
+    </DatabaseConnection>
+    <AppSettings>
+        <LogLevel>DEBUG</LogLevel>
+        <MaxConnections>100</MaxConnections>
+    </AppSettings>
+</Config>
+</parameter>
+</tool_use>

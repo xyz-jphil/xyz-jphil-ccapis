@@ -179,7 +179,7 @@ public class AccountHealth {
         }
 
         if (latestUsage != null && latestUsage.fiveHour() != null) {
-            sb.append(String.format(" - usage: %d%%", latestUsage.fiveHour().utilization()));
+            sb.append(String.format(" - usage: %.1f%%", latestUsage.fiveHour().utilization()));
         }
 
         return sb.toString();

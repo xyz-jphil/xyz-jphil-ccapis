@@ -841,7 +841,7 @@ public class UsageWidget extends Application {
         sb.append("  Resets In: ").append(accountUsage.getTimeUntilReset()).append("\n");
 
         // Add more details if available from usageData
-        var usageData = accountUsage.usageData();
+        /*var usageData = accountUsage.usageData();
         if (usageData != null) {
             if (usageData.sevenDay() != null) {
                 var sevenDay = usageData.sevenDay();
@@ -882,6 +882,56 @@ public class UsageWidget extends Application {
                     sb.append("  Resets: ").append(formatWeeklyResetTime(oauth.resetsAt())).append("\n");
                 }
             }
+        }*/
+            
+        sb.append("  Utilization Rate: ").append(String.format("%.1f%%", accountUsage.getUsageToTimeRatio() * 100.0)).append("\n");
+        
+        // Add more details if available from usageData
+        var usageData = accountUsage.usageData();
+        var fiveHrReset = usageData != null && usageData.fiveHour() != null ? usageData.fiveHour().resetsAt() : null;
+        sb.append("  Resets: ").append(formatExactResetInfo(fiveHrReset)).append("\n");
+
+        if (usageData != null) {
+            if (usageData.sevenDay() != null) {
+                var sevenDay = usageData.sevenDay();
+                sb.append("\n");
+                sb.append("7-Day Window:\n");
+                sb.append("  Usage: ").append(String.format("%.1f%%", ((float) sevenDay.utilization()))).append("\n");
+                var timeElapsed = calculateTimeElapsedPercent(sevenDay.resetsAt(), 7 * 24 * 60 * 60);
+                sb.append("  Time Elapsed: ").append(String.format("%.1f%%", timeElapsed)).append("\n");
+                var utilizationRate = timeElapsed > 0 ? (sevenDay.utilization() / timeElapsed) * 100.0 : 0.0;
+                sb.append("  Utilization Rate: ").append(String.format("%.1f%%", utilizationRate)).append("\n");
+                if (sevenDay.resetsAt() != null) {
+                    sb.append("  Resets: ").append(formatExactResetInfo(sevenDay.resetsAt())).append("\n");
+                }
+            }
+            if (usageData.sevenDayOpus() != null) {
+                var opus = usageData.sevenDayOpus();
+                sb.append("\n");
+                sb.append("7-Day Opus:\n");
+                sb.append("  Usage: ").append(String.format("%.1f%%", ((float) opus.utilization()))).append("\n");
+                var timeElapsed = calculateTimeElapsedPercent(opus.resetsAt(), 7 * 24 * 60 * 60);
+                sb.append("  Time Elapsed: ").append(String.format("%.1f%%", timeElapsed)).append("\n");
+                var utilizationRate = timeElapsed > 0 ? (opus.utilization() / timeElapsed) * 100.0 : 0.0;
+                sb.append("  Utilization Rate: ").append(String.format("%.1f%%", utilizationRate)).append("\n");
+                if (opus.resetsAt() != null) {
+                    sb.append("  Resets: ").append(formatExactResetInfo(opus.resetsAt())).append("\n");
+                }
+            }
+            if (usageData.sevenDayOauthApps() != null) {
+                var oauth = usageData.sevenDayOauthApps();
+                sb.append("\n");
+                sb.append("7-Day OAuth Apps:\n");
+                sb.append("  Usage: ").append(String.format("%.1f%%", ((float) oauth.utilization()))).append("\n");
+                var timeElapsed = calculateTimeElapsedPercent(oauth.resetsAt(), 7 * 24 * 60 * 60);
+                sb.append("  Time Elapsed: ").append(String.format("%.1f%%", timeElapsed)).append("\n");
+                var utilizationRate = timeElapsed > 0 ? (oauth.utilization() / timeElapsed) * 100.0 : 0.0;
+                sb.append("  Utilization Rate: ").append(String.format("%.1f%%", utilizationRate)).append("\n");
+                if (oauth.resetsAt() != null) {
+                    sb.append("  Resets: ").append(formatExactResetInfo(oauth.resetsAt())).append("\n");
+                }
+            }
+
         }
 
         tooltip.setText(sb.toString());
@@ -891,7 +941,7 @@ public class UsageWidget extends Application {
     /**
      * Format weekly reset time as "YYYY-MM-DD (X days)"
      */
-    private String formatWeeklyResetTime(java.time.OffsetDateTime resetTimeUtc) {
+    /*private String formatWeeklyResetTime(java.time.OffsetDateTime resetTimeUtc) {
         var resetLocal = resetTimeUtc.atZoneSameInstant(java.time.ZoneId.systemDefault());
         var resetDate = resetLocal.toLocalDate();
         var now = java.time.LocalDate.now();
@@ -902,6 +952,34 @@ public class UsageWidget extends Application {
             daysUntil,
             daysUntil == 1 ? "" : "s"
         );
+    }*/
+    
+    /**
+     * Format exact reset time as "timeLeft (at exactLocalTime)"
+     * Example: "2h 15m (at 14:30)" or "3d 4h 15m (at 10/25 14:30)"
+     */
+    private String formatExactResetInfo(java.time.OffsetDateTime resetTimeUtc) {
+        if (resetTimeUtc == null) return "N/A";
+
+        var now = java.time.OffsetDateTime.now();
+        var duration = java.time.Duration.between(now, resetTimeUtc);
+
+        if (duration.isNegative() || duration.isZero()) return "Now (Resetting...)";
+
+        var days = duration.toDays();
+        var hours = duration.toHoursPart();
+        var minutes = duration.toMinutesPart();
+
+        var timeLeft = new StringBuilder();
+        if (days > 0) timeLeft.append(days).append("d ");
+        if (hours > 0 || days > 0) timeLeft.append(hours).append("h ");
+        timeLeft.append(minutes).append("m");
+
+        var resetLocal = resetTimeUtc.atZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDateTime();
+        // Terse format: if > 1 day away, show MM/dd HH:mm, else just HH:mm
+        var timeFormatter = java.time.format.DateTimeFormatter.ofPattern(days > 0 ? "MM/dd HH:mm" : "HH:mm");
+
+        return String.format("%s (at %s)", timeLeft.toString().trim(), resetLocal.format(timeFormatter));
     }
 
     /**

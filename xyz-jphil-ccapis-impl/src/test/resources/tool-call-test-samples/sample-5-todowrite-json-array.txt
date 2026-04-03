@@ -1,0 +1,23 @@
+I'll help you create a simple JavaFX "Hello World" project. Let me start by creating a todo list to track this task.
+
+<tool_uses>
+<tool_use name="TodoWrite">
+<parameter name="todos">[
+  {
+    "content": "Create project directory structure",
+    "activeForm": "Creating project directory structure",
+    "status": "pending"
+  },
+  {
+    "content": "Create Maven pom.xml with JavaFX dependencies",
+    "activeForm": "Creating Maven pom.xml with JavaFX dependencies",
+    "status": "pending"
+  },
+  {
+    "content": "Create HelloWorld JavaFX application class",
+    "activeForm": "Creating HelloWorld JavaFX application class",
+    "status": "pending"
+  }
+]</parameter>
+</tool_use>
+</tool_uses>

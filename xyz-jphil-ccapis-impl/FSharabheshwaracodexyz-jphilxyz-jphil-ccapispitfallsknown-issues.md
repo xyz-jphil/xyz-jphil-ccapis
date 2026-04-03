@@ -1,1 +1,0 @@
-- Fix: Server doesn't terminate gracefully with Ctrl+C (Javalin shutdown hook issue)
